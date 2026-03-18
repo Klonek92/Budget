@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Trash2, CreditCard, Settings, RotateCcw, 
-  FileText, Activity, Target, ShieldCheck, Landmark, LogOut, CheckCircle2, Circle
+  FileText, Activity, Target, ShieldCheck, Landmark, LogOut, CheckCircle2, Circle, Pencil, Check, X
 } from 'lucide-react';
 
 // Firebase Imports
@@ -38,6 +38,10 @@ const App = () => {
   const [newTrans, setNewTrans] = useState({ 
     date: new Date().toISOString().split('T')[0], label: '', type: 'expense', amount: '', linkedReserveId: '' 
   });
+
+  // States für Bearbeitungsmodus im Journal
+  const [editingTransId, setEditingTransId] = useState(null);
+  const [editTransData, setEditTransData] = useState(null);
 
   const getVal = (v) => (typeof v === 'object' && v !== null ? v.amt : parseFloat(v) || 0);
   const getDone = (v) => (typeof v === 'object' && v !== null ? v.done : false);
@@ -86,7 +90,6 @@ const App = () => {
     return () => clearTimeout(timer);
   }, [startBalance, recurringItems, transactions, reserves, user, isLoaded]);
 
-  // LOGIK-UPDATE: Trennung zwischen echten Ausgaben und Sparraten (Umbuchungen)
   const dashboardData = useMemo(() => {
     let runningTotalBalance = startBalance;
     const linkedLabels = reserves.map(r => r.monthlyLink).filter(l => l);
@@ -94,21 +97,12 @@ const App = () => {
     return MONATE.map((_, mIdx) => {
       const fixInc = recurringItems.filter(i => i.type === 'income').reduce((sum, i) => sum + getVal(i.values[mIdx]), 0);
       const varInc = transactions.filter(t => new Date(t.date).getMonth() === mIdx && t.type === 'income').reduce((sum, t) => sum + (t.amount || 0), 0);
-      
-      // Nur Ausgaben, die NICHT an eine Rücklage gekoppelt sind (Echter Cash-Abfluss)
       const fixExpReal = recurringItems.filter(i => i.type === 'expense' && !linkedLabels.includes(i.label)).reduce((sum, i) => sum + getVal(i.values[mIdx]), 0);
-      
-      // Ausgaben, die Sparraten sind (Nur Umbuchung auf dem Konto)
       const fixExpReserveTransfer = recurringItems.filter(i => i.type === 'expense' && linkedLabels.includes(i.label)).reduce((sum, i) => sum + getVal(i.values[mIdx]), 0);
-
       const varExpNormal = transactions.filter(t => new Date(t.date).getMonth() === mIdx && t.type === 'expense' && !t.linkedReserveId).reduce((sum, t) => sum + (t.amount || 0), 0);
       const varExpReserve = transactions.filter(t => new Date(t.date).getMonth() === mIdx && t.type === 'expense' && t.linkedReserveId).reduce((sum, t) => sum + (t.amount || 0), 0);
       
-      // Operatives Saldo zieht nur echte Abflüsse ab
       const operativeSaldo = (fixInc + varInc) - (fixExpReal + varExpNormal);
-      
-      // Realer Cashflow (Für den physischen Kontostand)
-      // Sparraten innerhalb des Kontos reduzieren den Kontostand nicht, nur die externe Ausgabe tut das.
       const realCashflow = (fixInc + varInc) - (fixExpReal + varExpNormal + varExpReserve);
       runningTotalBalance += realCashflow;
 
@@ -130,7 +124,19 @@ const App = () => {
 
   const formatCurrency = (val) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(val);
 
-  if (authLoading) return <div className="min-h-screen flex items-center justify-center font-black text-slate-400">AUTHENTIFIZIERUNG...</div>;
+  // Journal Bearbeitungs-Logik
+  const startEditTransaction = (t) => {
+    setEditingTransId(t.id);
+    setEditTransData({ ...t });
+  };
+
+  const saveEditedTransaction = () => {
+    setTransactions(transactions.map(t => t.id === editingTransId ? { ...editTransData, amount: parseFloat(editTransData.amount) } : t));
+    setEditingTransId(null);
+    setEditTransData(null);
+  };
+
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center font-black text-slate-400">SYNC...</div>;
 
   if (!user) {
     return (
@@ -152,15 +158,13 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-12">
-      {!isLoaded && <div className="fixed inset-0 bg-white/90 z-50 flex items-center justify-center font-black uppercase animate-pulse">Sync...</div>}
-      
       <div className="max-w-[1600px] mx-auto p-2 md:p-6">
         <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4 border-b pb-4">
           <div className="flex items-center gap-3">
             <div className="bg-slate-900 p-2 rounded-lg text-white"><Landmark size={20}/></div>
             <div>
               <h1 className="text-lg font-black uppercase leading-none">Hauskonto</h1>
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Status: Gekoppelte Raten eliminiert | {user.email}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Stuttgart | {user.email}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 w-full lg:w-auto">
@@ -209,7 +213,7 @@ const App = () => {
                   {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">-{formatCurrency(d.fixExp)}</td>)}
                 </tr>
                 <tr className="text-indigo-400 border-t italic bg-indigo-50/30">
-                  <td className="p-3 pl-8 sticky left-0 bg-indigo-50/30 z-10 border-r text-[9px] font-black uppercase">Davon Sparraten (Umbuchung)</td>
+                  <td className="p-3 pl-8 sticky left-0 bg-indigo-50/30 z-10 border-r text-[9px] font-black uppercase tracking-tighter">Davon Sparraten (Umbuchung)</td>
                   <td className="bg-slate-50 border-r text-center opacity-30">---</td>
                   {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">({formatCurrency(d.sparraten)})</td>)}
                 </tr>
@@ -314,9 +318,9 @@ const App = () => {
                 <input type="text" placeholder="Zweck..." className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-bold" value={newTrans.label} onChange={e => setNewTrans({...newTrans, label: e.target.value})} />
                 <input type="number" placeholder="Betrag €" className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-black" value={newTrans.amount} onChange={e => setNewTrans({...newTrans, amount: e.target.value})} />
                 <div className="p-3 bg-indigo-50 rounded-xl space-y-2">
-                  <label className="text-[8px] font-black text-indigo-400 uppercase block ml-1 tracking-tighter">Zahlung aus Rücklage?</label>
+                  <label className="text-[8px] font-black text-indigo-400 uppercase block ml-1 tracking-tighter">Quelle (Rücklage?)</label>
                   <select className="w-full p-2.5 rounded-lg border text-[10px] font-bold outline-none cursor-pointer" value={newTrans.linkedReserveId} onChange={e => setNewTrans({...newTrans, linkedReserveId: e.target.value})}>
-                    <option value="">Nein (Laufendes Konto)</option>
+                    <option value="">Konto</option>
                     {reserves.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
                   </select>
                 </div>
@@ -331,20 +335,45 @@ const App = () => {
               <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-slate-50 text-[9px] font-black uppercase text-slate-400 border-b">
-                    <tr><th className="p-5">Datum</th><th className="p-5">Zweck</th><th className="p-5">Quelle</th><th className="p-5 text-right">Betrag</th><th className="p-5 w-10"></th></tr>
+                    <tr><th className="p-5">Datum</th><th className="p-5">Zweck</th><th className="p-5">Quelle</th><th className="p-5 text-right">Betrag</th><th className="p-5 w-24">Aktion</th></tr>
                   </thead>
                   <tbody>
                     {transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(t => (
                       <tr key={t.id} className="border-b hover:bg-slate-50 italic">
-                        <td className="p-5 text-slate-400 font-bold">{new Date(t.date).toLocaleDateString('de-DE')}</td>
-                        <td className="p-5 font-black text-slate-800 uppercase">{t.label}</td>
-                        <td className="p-5">
-                          <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${t.linkedReserveId ? 'bg-indigo-500 text-white' : 'border text-slate-400'}`}>
-                            {t.linkedReserveId ? reserves.find(r => String(r.id) === String(t.linkedReserveId))?.label : 'Konto'}
-                          </span>
-                        </td>
-                        <td className={`p-5 text-right font-black ${t.type === 'income' ? 'text-emerald-600' : 'text-slate-900'}`}>{t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount)}</td>
-                        <td className="p-5 text-center"><button onClick={() => setTransactions(transactions.filter(x => x.id !== t.id))} className="text-slate-200 hover:text-rose-500"><Trash2 size={16}/></button></td>
+                        {editingTransId === t.id ? (
+                          // BEARBEITUNGS-MODUS
+                          <>
+                            <td className="p-2"><input type="date" className="w-full p-2 border rounded text-[10px]" value={editTransData.date} onChange={e => setEditTransData({...editTransData, date: e.target.value})} /></td>
+                            <td className="p-2"><input type="text" className="w-full p-2 border rounded text-[10px] font-bold" value={editTransData.label} onChange={e => setEditTransData({...editTransData, label: e.target.value})} /></td>
+                            <td className="p-2">
+                              <select className="w-full p-2 border rounded text-[10px]" value={editTransData.linkedReserveId} onChange={e => setEditTransData({...editTransData, linkedReserveId: e.target.value})}>
+                                <option value="">Konto</option>
+                                {reserves.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                              </select>
+                            </td>
+                            <td className="p-2"><input type="number" className="w-full p-2 border rounded text-[10px] text-right font-black" value={editTransData.amount} onChange={e => setEditTransData({...editTransData, amount: e.target.value})} /></td>
+                            <td className="p-2 text-center flex justify-center gap-2">
+                              <button onClick={saveEditedTransaction} className="text-emerald-600 p-2"><Check size={16}/></button>
+                              <button onClick={() => setEditingTransId(null)} className="text-rose-600 p-2"><X size={16}/></button>
+                            </td>
+                          </>
+                        ) : (
+                          // ANZEIGE-MODUS
+                          <>
+                            <td className="p-5 text-slate-400 font-bold">{new Date(t.date).toLocaleDateString('de-DE')}</td>
+                            <td className="p-5 font-black text-slate-800 uppercase">{t.label}</td>
+                            <td className="p-5">
+                              <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${t.linkedReserveId ? 'bg-indigo-500 text-white' : 'border text-slate-400'}`}>
+                                {t.linkedReserveId ? reserves.find(r => String(r.id) === String(t.linkedReserveId))?.label : 'Konto'}
+                              </span>
+                            </td>
+                            <td className={`p-5 text-right font-black ${t.type === 'income' ? 'text-emerald-600' : 'text-slate-900'}`}>{t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount)}</td>
+                            <td className="p-5 text-center flex justify-center gap-2">
+                              <button onClick={() => startEditTransaction(t)} className="text-slate-300 hover:text-indigo-600"><Pencil size={14}/></button>
+                              <button onClick={() => setTransactions(transactions.filter(x => x.id !== t.id))} className="text-slate-200 hover:text-rose-500"><Trash2 size={16}/></button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>
