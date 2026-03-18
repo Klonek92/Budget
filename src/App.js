@@ -39,9 +39,11 @@ const App = () => {
     date: new Date().toISOString().split('T')[0], label: '', type: 'expense', amount: '', linkedReserveId: '' 
   });
 
-  // States für Bearbeitungsmodus im Journal
+  // Bearbeitungs-States
   const [editingTransId, setEditingTransId] = useState(null);
   const [editTransData, setEditTransData] = useState(null);
+  const [editingResId, setEditingResId] = useState(null);
+  const [editResData, setEditResData] = useState(null);
 
   const getVal = (v) => (typeof v === 'object' && v !== null ? v.amt : parseFloat(v) || 0);
   const getDone = (v) => (typeof v === 'object' && v !== null ? v.done : false);
@@ -124,16 +126,18 @@ const App = () => {
 
   const formatCurrency = (val) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(val);
 
-  // Journal Bearbeitungs-Logik
-  const startEditTransaction = (t) => {
-    setEditingTransId(t.id);
-    setEditTransData({ ...t });
-  };
-
+  // Bearbeitungs-Logik Journal
+  const startEditTransaction = (t) => { setEditingTransId(t.id); setEditTransData({ ...t }); };
   const saveEditedTransaction = () => {
     setTransactions(transactions.map(t => t.id === editingTransId ? { ...editTransData, amount: parseFloat(editTransData.amount) } : t));
-    setEditingTransId(null);
-    setEditTransData(null);
+    setEditingTransId(null); setEditTransData(null);
+  };
+
+  // Bearbeitungs-Logik Rücklagen
+  const startEditReserve = (r) => { setEditingResId(r.id); setEditResData({ ...r }); };
+  const saveEditedReserve = () => {
+    setReserves(reserves.map(r => r.id === editingResId ? { ...editResData, initial: parseFloat(editResData.initial) || 0 } : r));
+    setEditingResId(null); setEditResData(null);
   };
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center font-black text-slate-400">SYNC...</div>;
@@ -213,7 +217,7 @@ const App = () => {
                   {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">-{formatCurrency(d.fixExp)}</td>)}
                 </tr>
                 <tr className="text-indigo-400 border-t italic bg-indigo-50/30">
-                  <td className="p-3 pl-8 sticky left-0 bg-indigo-50/30 z-10 border-r text-[9px] font-black uppercase tracking-tighter">Davon Sparraten (Umbuchung)</td>
+                  <td className="p-3 pl-8 sticky left-0 bg-indigo-50/30 z-10 border-r text-[9px] font-black uppercase tracking-tighter">Sparraten (Umbuchung)</td>
                   <td className="bg-slate-50 border-r text-center opacity-30">---</td>
                   {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">({formatCurrency(d.sparraten)})</td>)}
                 </tr>
@@ -249,7 +253,7 @@ const App = () => {
         {activeTab === 'overview' && (
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
             <div className="p-4 bg-slate-50 font-black border-b flex justify-between items-center text-[10px] uppercase text-slate-500">
-              Fixplanung | Status: Kreis = Gebucht
+              Planung & Status
               <button onClick={() => setRecurringItems([...recurringItems, { id: Date.now(), label: 'Neue Position', type: 'expense', values: Array(12).fill(null).map(() => createPlanValue(0)) }])} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-[9px]"><Plus size={14}/> Zeile</button>
             </div>
             <div className="overflow-x-auto no-scrollbar">
@@ -270,7 +274,7 @@ const App = () => {
                         <td className="p-0 sticky left-0 bg-white z-10 border-r">
                           <div className="flex items-center px-4">
                             <input className="w-full py-4 font-bold outline-none focus:bg-slate-50 uppercase text-[10px] bg-transparent" value={item.label} onChange={(e) => setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, label: e.target.value} : i))} />
-                            {isLinked && <Target size={12} className="text-indigo-400 ml-2" title="Gekoppelt an Rücklage"/>}
+                            {isLinked && <Target size={12} className="text-indigo-400 ml-2" title="Gekoppelt"/>}
                           </div>
                         </td>
                         <td className="p-2 border-r text-center">
@@ -318,7 +322,7 @@ const App = () => {
                 <input type="text" placeholder="Zweck..." className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-bold" value={newTrans.label} onChange={e => setNewTrans({...newTrans, label: e.target.value})} />
                 <input type="number" placeholder="Betrag €" className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-black" value={newTrans.amount} onChange={e => setNewTrans({...newTrans, amount: e.target.value})} />
                 <div className="p-3 bg-indigo-50 rounded-xl space-y-2">
-                  <label className="text-[8px] font-black text-indigo-400 uppercase block ml-1 tracking-tighter">Quelle (Rücklage?)</label>
+                  <label className="text-[8px] font-black text-indigo-400 uppercase block ml-1 tracking-tighter">Quelle</label>
                   <select className="w-full p-2.5 rounded-lg border text-[10px] font-bold outline-none cursor-pointer" value={newTrans.linkedReserveId} onChange={e => setNewTrans({...newTrans, linkedReserveId: e.target.value})}>
                     <option value="">Konto</option>
                     {reserves.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
@@ -341,10 +345,9 @@ const App = () => {
                     {transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(t => (
                       <tr key={t.id} className="border-b hover:bg-slate-50 italic">
                         {editingTransId === t.id ? (
-                          // BEARBEITUNGS-MODUS
                           <>
                             <td className="p-2"><input type="date" className="w-full p-2 border rounded text-[10px]" value={editTransData.date} onChange={e => setEditTransData({...editTransData, date: e.target.value})} /></td>
-                            <td className="p-2"><input type="text" className="w-full p-2 border rounded text-[10px] font-bold" value={editTransData.label} onChange={e => setEditTransData({...editTransData, label: e.target.value})} /></td>
+                            <td className="p-2"><input type="text" className="w-full p-2 border rounded text-[10px] font-bold uppercase" value={editTransData.label} onChange={e => setEditTransData({...editTransData, label: e.target.value})} /></td>
                             <td className="p-2">
                               <select className="w-full p-2 border rounded text-[10px]" value={editTransData.linkedReserveId} onChange={e => setEditTransData({...editTransData, linkedReserveId: e.target.value})}>
                                 <option value="">Konto</option>
@@ -358,7 +361,6 @@ const App = () => {
                             </td>
                           </>
                         ) : (
-                          // ANZEIGE-MODUS
                           <>
                             <td className="p-5 text-slate-400 font-bold">{new Date(t.date).toLocaleDateString('de-DE')}</td>
                             <td className="p-5 font-black text-slate-800 uppercase">{t.label}</td>
@@ -389,25 +391,45 @@ const App = () => {
             <div className="lg:col-span-1">
               <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
                 <h2 className="text-[10px] font-black uppercase text-slate-400 border-b pb-2 tracking-widest flex items-center gap-2"><Target size={16}/> Topf erstellen</h2>
-                <input type="text" placeholder="Bezeichnung..." className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-bold" value={newRes.label} onChange={e => setNewRes({...newRes, label: e.target.value})} />
+                <input type="text" placeholder="Name..." className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-bold" value={newRes.label} onChange={e => setNewRes({...newRes, label: e.target.value})} />
                 <input type="number" placeholder="Startbestand €" className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-bold" value={newRes.initial} onChange={e => setNewRes({...newRes, initial: e.target.value})} />
                 <select className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-bold" value={newRes.monthlyLink} onChange={e => setNewRes({...newRes, monthlyLink: e.target.value})}>
-                  <option value="">Keine Sparrate koppeln</option>
+                  <option value="">Keine Kopplung</option>
                   {recurringItems.filter(i => i.type === 'expense').map(i => <option key={i.id} value={i.label}>{i.label}</option>)}
                 </select>
-                <button onClick={() => { if(newRes.label) { setReserves([...reserves, { id: Date.now(), ...newRes }]); setNewRes({label:'', initial:'', monthlyLink:''}); }}} className="w-full bg-slate-900 text-white p-4 rounded-xl font-black text-[10px] uppercase shadow-xl">Topf Aktivieren</button>
+                <button onClick={() => { if(newRes.label) { setReserves([...reserves, { id: Date.now(), ...newRes }]); setNewRes({label:'', initial:'', monthlyLink:''}); }}} className="w-full bg-slate-900 text-white p-4 rounded-xl font-black text-[10px] uppercase shadow-xl">Hinzufügen</button>
               </div>
             </div>
             <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
               {reserves.map(res => (
-                <div key={res.id} className="bg-white p-6 rounded-2xl border shadow-sm group hover:border-indigo-200 transition-all">
-                  <div className="flex justify-between mb-4">
-                    <div><h3 className="font-black text-slate-900 text-sm uppercase">{res.label}</h3><p className="text-[9px] text-slate-400 font-bold uppercase mt-1">{res.monthlyLink ? `Sparrate: ${res.monthlyLink}` : 'Statisch'}</p></div>
-                    <button onClick={() => setReserves(reserves.filter(r => r.id !== res.id))} className="text-slate-200 hover:text-rose-500"><Trash2 size={16}/></button>
-                  </div>
-                  <div className="text-2xl font-black text-indigo-600">
-                    {formatCurrency(Number(res.initial) + (recurringItems.find(i => i.label === res.monthlyLink)?.values.reduce((a, b) => a + getVal(b), 0) || 0) - transactions.filter(t => String(t.linkedReserveId) === String(res.id)).reduce((sum, t) => sum + t.amount, 0))}
-                  </div>
+                <div key={res.id} className="bg-white p-6 rounded-2xl border shadow-sm group hover:border-indigo-200 transition-all relative">
+                  {editingResId === res.id ? (
+                    <div className="space-y-3">
+                      <input className="w-full p-2 border rounded text-xs font-black uppercase" value={editResData.label} onChange={e => setEditResData({...editResData, label: e.target.value})} />
+                      <input type="number" className="w-full p-2 border rounded text-xs font-bold" value={editResData.initial} onChange={e => setEditResData({...editResData, initial: e.target.value})} />
+                      <select className="w-full p-2 border rounded text-xs" value={editResData.monthlyLink} onChange={e => setEditResData({...editResData, monthlyLink: e.target.value})}>
+                        <option value="">Keine Kopplung</option>
+                        {recurringItems.filter(i => i.type === 'expense').map(i => <option key={i.id} value={i.label}>{i.label}</option>)}
+                      </select>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button onClick={saveEditedReserve} className="text-emerald-600 flex items-center gap-1 text-[10px] font-black uppercase"><Check size={14}/> OK</button>
+                        <button onClick={() => setEditingResId(null)} className="text-rose-600 flex items-center gap-1 text-[10px] font-black uppercase"><X size={14}/> Abbrechen</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between mb-4">
+                        <div><h3 className="font-black text-slate-900 text-sm uppercase">{res.label}</h3><p className="text-[9px] text-slate-400 font-bold uppercase mt-1">{res.monthlyLink ? `Rate: ${res.monthlyLink}` : 'Statisch'}</p></div>
+                        <div className="flex gap-2">
+                          <button onClick={() => startEditReserve(res)} className="text-slate-300 hover:text-indigo-600"><Pencil size={14}/></button>
+                          <button onClick={() => setReserves(reserves.filter(r => r.id !== res.id))} className="text-slate-200 hover:text-rose-500"><Trash2 size={16}/></button>
+                        </div>
+                      </div>
+                      <div className="text-2xl font-black text-indigo-600">
+                        {formatCurrency(Number(res.initial) + (recurringItems.find(i => i.label === res.monthlyLink)?.values.reduce((a, b) => a + getVal(b), 0) || 0) - transactions.filter(t => String(t.linkedReserveId) === String(res.id)).reduce((sum, t) => sum + t.amount, 0))}
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
