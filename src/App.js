@@ -4,6 +4,10 @@ import {
   FileText, Activity, Target, ShieldCheck, Landmark
 } from 'lucide-react';
 
+// Firebase Imports
+import { db } from './firebase';
+import { doc, getDoc, setDoc } from "firebase/firestore";
+
 const MONTHS = [
   'Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 
   'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'
@@ -18,29 +22,16 @@ const INITIAL_RECURRING = [
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('summary');
-  
-  const [startBalance, setStartBalance] = useState(() => {
-    const saved = localStorage.getItem('h_budget_start_2025');
-    return saved ? parseFloat(saved) : 2115.91;
-  });
+  const [isLoaded, setIsLoaded] = useState(false); // Verhindert Überschreiben beim Laden
 
-  const [recurringItems, setRecurringItems] = useState(() => {
-    const saved = localStorage.getItem('h_budget_rec_2026_v11');
-    return saved ? JSON.parse(saved) : INITIAL_RECURRING;
-  });
-
-  const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem('h_budget_trans_2026_v11');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [reserves, setReserves] = useState(() => {
-    const saved = localStorage.getItem('h_budget_reserves_v11');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, label: 'Notgroschen', initial: 5000, monthlyLink: null },
-      { id: 2, label: 'Instandhaltung Haus', initial: 2000, monthlyLink: 'Sparrate Instandhaltung' }
-    ];
-  });
+  // States mit Standardwerten initialisieren
+  const [startBalance, setStartBalance] = useState(2115.91);
+  const [recurringItems, setRecurringItems] = useState(INITIAL_RECURRING);
+  const [transactions, setTransactions] = useState([]);
+  const [reserves, setReserves] = useState([
+    { id: 1, label: 'Notgroschen', initial: 5000, monthlyLink: null },
+    { id: 2, label: 'Instandhaltung Haus', initial: 2000, monthlyLink: 'Sparrate Instandhaltung' }
+  ]);
 
   const [newRes, setNewRes] = useState({ label: '', initial: '', monthlyLink: '' });
   const [newTrans, setNewTrans] = useState({ 
@@ -51,12 +42,50 @@ const App = () => {
     linkedReserveId: '' 
   });
 
+  // 1. DATEN BEIM START LADEN
   useEffect(() => {
-    localStorage.setItem('h_budget_rec_2026_v11', JSON.stringify(recurringItems));
-    localStorage.setItem('h_budget_trans_2026_v11', JSON.stringify(transactions));
-    localStorage.setItem('h_budget_reserves_v11', JSON.stringify(reserves));
-    localStorage.setItem('h_budget_start_2025', startBalance.toString());
-  }, [recurringItems, transactions, reserves, startBalance]);
+    const loadData = async () => {
+      try {
+        const docRef = doc(db, "budget_data", "herrenberg_2026");
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setStartBalance(data.startBalance);
+          setRecurringItems(data.recurringItems);
+          setTransactions(data.transactions);
+          setReserves(data.reserves);
+        }
+        setIsLoaded(true); // Erst jetzt ist die App bereit zum Speichern
+      } catch (error) {
+        console.error("Fehler beim Laden:", error);
+        setIsLoaded(true); // Trotzdem laden, um App nutzbar zu machen
+      }
+    };
+    loadData();
+  }, []);
+
+  // 2. DATEN AUTOMATISCH SPEICHERN (DEBOUNCED)
+  useEffect(() => {
+    if (!isLoaded) return; // Verhindert, dass Standardwerte die Cloud-Daten beim Laden überschreiben
+
+    const saveData = async () => {
+      try {
+        await setDoc(doc(db, "budget_data", "herrenberg_2026"), {
+          startBalance,
+          recurringItems,
+          transactions,
+          reserves,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error("Fehler beim Speichern:", error);
+      }
+    };
+
+    const timer = setTimeout(saveData, 1000); // 1 Sekunde warten nach letzter Änderung
+    return () => clearTimeout(timer);
+  }, [startBalance, recurringItems, transactions, reserves, isLoaded]);
 
   const dashboardData = useMemo(() => {
     let runningTotalBalance = startBalance;
@@ -99,6 +128,12 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-12 overflow-x-hidden">
+      {!isLoaded && (
+        <div className="fixed inset-0 bg-white/80 z-50 flex items-center justify-center font-black uppercase tracking-widest text-indigo-600 animate-pulse">
+          Lade Cloud-Daten...
+        </div>
+      )}
+
       <div className="max-w-[1600px] mx-auto p-2 md:p-6">
         
         {/* Navigation */}
@@ -199,7 +234,7 @@ const App = () => {
           </div>
         )}
 
-        {/* PLANUNG (FIXKOSTEN MATRIX) */}
+        {/* PLANUNG */}
         {activeTab === 'overview' && (
            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-left duration-300">
              <div className="p-3 md:p-4 bg-slate-50 font-black border-b flex items-center justify-between text-[9px] md:text-[10px] uppercase tracking-widest text-slate-500">
@@ -375,7 +410,7 @@ const App = () => {
                 <input type="number" step="0.01" className="w-full p-4 md:p-5 rounded-2xl border border-slate-200 bg-slate-100 text-2xl md:text-3xl font-black outline-none focus:bg-white shadow-inner text-center" value={startBalance} onChange={(e) => setStartBalance(parseFloat(e.target.value) || 0)} />
               </div>
               <div className="pt-8 border-t border-slate-100">
-                <button onClick={() => { if(window.confirm('Daten löschen?')) { localStorage.clear(); window.location.reload(); }}} className="w-full py-4 text-rose-600 rounded-xl border-2 border-rose-100 hover:bg-rose-50 transition-all font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3"><RotateCcw size={18}/> Datenbank Reset</button>
+                <button onClick={() => { if(window.confirm('Daten löschen?')) { setTransactions([]); setRecurringItems(INITIAL_RECURRING); }}} className="w-full py-4 text-rose-600 rounded-xl border-2 border-rose-100 hover:bg-rose-50 transition-all font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3"><RotateCcw size={18}/> App Reset</button>
               </div>
             </div>
           </div>
