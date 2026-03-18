@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Plus, Trash2, Calendar, CreditCard, BarChart3, Save, 
-  Settings, RotateCcw, FileText, Activity, TrendingUp, AlertCircle,
-  Download, Target, ShieldCheck, Landmark, ArrowDownCircle, ArrowUpCircle, X
+  Plus, Trash2, CreditCard, Settings, RotateCcw, 
+  FileText, Activity, Target, ShieldCheck, Landmark
 } from 'lucide-react';
 
 const MONTHS = [
@@ -376,7 +375,7 @@ const App = () => {
                 <input type="number" step="0.01" className="w-full p-4 md:p-5 rounded-2xl border border-slate-200 bg-slate-100 text-2xl md:text-3xl font-black outline-none focus:bg-white shadow-inner text-center" value={startBalance} onChange={(e) => setStartBalance(parseFloat(e.target.value) || 0)} />
               </div>
               <div className="pt-8 border-t border-slate-100">
-                <button onClick={() => { if(confirm('Daten löschen?')) { localStorage.clear(); window.location.reload(); }}} className="w-full py-4 text-rose-600 rounded-xl border-2 border-rose-100 hover:bg-rose-50 transition-all font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3"><RotateCcw size={18}/> Datenbank Reset</button>
+                <button onClick={() => { if(window.confirm('Daten löschen?')) { localStorage.clear(); window.location.reload(); }}} className="w-full py-4 text-rose-600 rounded-xl border-2 border-rose-100 hover:bg-rose-50 transition-all font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3"><RotateCcw size={18}/> Datenbank Reset</button>
               </div>
             </div>
           </div>
