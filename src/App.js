@@ -11,7 +11,6 @@ import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebas
 
 const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
-// Hilfsfunktion für Initialdaten-Struktur
 const createPlanValue = (val) => ({ amt: val, done: false });
 
 const INITIAL_PLANUNG = [
@@ -30,7 +29,6 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('summary');
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // States
   const [startBalance, setStartBalance] = useState(2115.91);
   const [recurringItems, setRecurringItems] = useState(INITIAL_PLANUNG);
   const [transactions, setTransactions] = useState([]);
@@ -41,11 +39,9 @@ const App = () => {
     date: new Date().toISOString().split('T')[0], label: '', type: 'expense', amount: '', linkedReserveId: '' 
   });
 
-  // Hilfsfunktion: Sicherstellen, dass Planwerte Objekte sind (Migration alter Daten)
   const getVal = (v) => (typeof v === 'object' && v !== null ? v.amt : parseFloat(v) || 0);
   const getDone = (v) => (typeof v === 'object' && v !== null ? v.done : false);
 
-  // AUTH OBSERVER
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -54,7 +50,6 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // LOGIN
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
@@ -64,7 +59,6 @@ const App = () => {
     }
   };
 
-  // DATEN LADEN
   useEffect(() => {
     if (!user) return;
     const loadData = async () => {
@@ -82,7 +76,6 @@ const App = () => {
     loadData();
   }, [user]);
 
-  // DATEN SPEICHERN
   useEffect(() => {
     if (!user || !isLoaded) return;
     const timer = setTimeout(async () => {
@@ -93,18 +86,30 @@ const App = () => {
     return () => clearTimeout(timer);
   }, [startBalance, recurringItems, transactions, reserves, user, isLoaded]);
 
-  // BERECHNUNGEN
+  // LOGIK-UPDATE: Trennung zwischen echten Ausgaben und Sparraten (Umbuchungen)
   const dashboardData = useMemo(() => {
     let runningTotalBalance = startBalance;
+    const linkedLabels = reserves.map(r => r.monthlyLink).filter(l => l);
+
     return MONATE.map((_, mIdx) => {
       const fixInc = recurringItems.filter(i => i.type === 'income').reduce((sum, i) => sum + getVal(i.values[mIdx]), 0);
       const varInc = transactions.filter(t => new Date(t.date).getMonth() === mIdx && t.type === 'income').reduce((sum, t) => sum + (t.amount || 0), 0);
-      const fixExp = recurringItems.filter(i => i.type === 'expense').reduce((sum, i) => sum + getVal(i.values[mIdx]), 0);
+      
+      // Nur Ausgaben, die NICHT an eine Rücklage gekoppelt sind (Echter Cash-Abfluss)
+      const fixExpReal = recurringItems.filter(i => i.type === 'expense' && !linkedLabels.includes(i.label)).reduce((sum, i) => sum + getVal(i.values[mIdx]), 0);
+      
+      // Ausgaben, die Sparraten sind (Nur Umbuchung auf dem Konto)
+      const fixExpReserveTransfer = recurringItems.filter(i => i.type === 'expense' && linkedLabels.includes(i.label)).reduce((sum, i) => sum + getVal(i.values[mIdx]), 0);
+
       const varExpNormal = transactions.filter(t => new Date(t.date).getMonth() === mIdx && t.type === 'expense' && !t.linkedReserveId).reduce((sum, t) => sum + (t.amount || 0), 0);
       const varExpReserve = transactions.filter(t => new Date(t.date).getMonth() === mIdx && t.type === 'expense' && t.linkedReserveId).reduce((sum, t) => sum + (t.amount || 0), 0);
       
-      const operativeSaldo = (fixInc + varInc) - (fixExp + varExpNormal);
-      const realCashflow = (fixInc + varInc) - (fixExp + varExpNormal + varExpReserve);
+      // Operatives Saldo zieht nur echte Abflüsse ab
+      const operativeSaldo = (fixInc + varInc) - (fixExpReal + varExpNormal);
+      
+      // Realer Cashflow (Für den physischen Kontostand)
+      // Sparraten innerhalb des Kontos reduzieren den Kontostand nicht, nur die externe Ausgabe tut das.
+      const realCashflow = (fixInc + varInc) - (fixExpReal + varExpNormal + varExpReserve);
       runningTotalBalance += realCashflow;
 
       const currentReservesStatus = reserves.map(res => {
@@ -116,8 +121,8 @@ const App = () => {
 
       const totalRes = currentReservesStatus.reduce((sum, r) => sum + r.balance, 0);
       return { 
-        fixInc, varInc, fixExp, varExpNormal, operativeSaldo, 
-        reservesDetail: currentReservesStatus, totalReserves: totalRes, 
+        fixInc, varInc, fixExp: fixExpReal, sparraten: fixExpReserveTransfer,
+        operativeSaldo, reservesDetail: currentReservesStatus, totalReserves: totalRes, 
         liquidBalance: runningTotalBalance - totalRes, realTotalBalance: runningTotalBalance 
       };
     });
@@ -155,7 +160,7 @@ const App = () => {
             <div className="bg-slate-900 p-2 rounded-lg text-white"><Landmark size={20}/></div>
             <div>
               <h1 className="text-lg font-black uppercase leading-none">Hauskonto</h1>
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Stuttgart/Herrenberg | {user.email}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Status: Gekoppelte Raten eliminiert | {user.email}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 w-full lg:w-auto">
@@ -193,22 +198,27 @@ const App = () => {
                   <td className="bg-slate-50 border-r text-center opacity-30">---</td>
                   {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">{formatCurrency(d.fixInc)}</td>)}
                 </tr>
-                <tr className="text-slate-500 border-t italic">
+                <tr className="text-slate-500 border-t italic border-b-2 border-slate-100">
                   <td className="p-3 pl-8 sticky left-0 bg-white z-10 border-r">Variable Einnahmen</td>
                   <td className="bg-slate-50 border-r text-center opacity-30">---</td>
                   {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">{formatCurrency(d.varInc)}</td>)}
                 </tr>
-                <tr className="text-slate-500 border-t italic">
-                  <td className="p-3 pl-8 sticky left-0 bg-white z-10 border-r text-rose-400">Fixe Ausgaben (-)</td>
+                <tr className="text-rose-400 border-t italic">
+                  <td className="p-3 pl-8 sticky left-0 bg-white z-10 border-r font-bold">Fixe Ausgaben (Netto)</td>
                   <td className="bg-slate-50 border-r text-center opacity-30">---</td>
-                  {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r text-rose-400">-{formatCurrency(d.fixExp)}</td>)}
+                  {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">-{formatCurrency(d.fixExp)}</td>)}
+                </tr>
+                <tr className="text-indigo-400 border-t italic bg-indigo-50/30">
+                  <td className="p-3 pl-8 sticky left-0 bg-indigo-50/30 z-10 border-r text-[9px] font-black uppercase">Davon Sparraten (Umbuchung)</td>
+                  <td className="bg-slate-50 border-r text-center opacity-30">---</td>
+                  {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">({formatCurrency(d.sparraten)})</td>)}
                 </tr>
                 <tr className="bg-indigo-600 text-white font-black">
                   <td className="p-4 sticky left-0 bg-indigo-600 z-10 border-r uppercase text-[10px]">Monatssaldo (Op.)</td>
                   <td className="bg-indigo-700 border-r text-center opacity-50 italic">---</td>
                   {dashboardData.map((d, i) => <td key={i} className="p-4 text-center border-r">{formatCurrency(d.operativeSaldo)}</td>)}
                 </tr>
-                <tr className="bg-slate-100 text-[8px] font-black uppercase text-slate-400 border-t"><td colSpan={14} className="p-2 px-5">Rücklagen-Stände</td></tr>
+                <tr className="bg-slate-100 text-[8px] font-black uppercase text-slate-400 border-t"><td colSpan={14} className="p-2 px-5">Rücklagen-Bestände</td></tr>
                 {reserves.map(res => (
                   <tr key={res.id} className="text-slate-600 border-t">
                     <td className="p-3 pl-8 sticky left-0 bg-white z-10 border-r font-bold">{res.label}</td>
@@ -231,11 +241,11 @@ const App = () => {
           </div>
         )}
 
-        {/* 2. PLANUNG MIT STATUS-MARKIERUNG */}
+        {/* 2. PLANUNG */}
         {activeTab === 'overview' && (
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
             <div className="p-4 bg-slate-50 font-black border-b flex justify-between items-center text-[10px] uppercase text-slate-500">
-              Planung & Status (Klick auf Kreis = Gebucht)
+              Fixplanung | Status: Kreis = Gebucht
               <button onClick={() => setRecurringItems([...recurringItems, { id: Date.now(), label: 'Neue Position', type: 'expense', values: Array(12).fill(null).map(() => createPlanValue(0)) }])} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-[9px]"><Plus size={14}/> Zeile</button>
             </div>
             <div className="overflow-x-auto no-scrollbar">
@@ -249,39 +259,45 @@ const App = () => {
                   </tr>
                 </thead>
                 <tbody className="text-xs">
-                  {recurringItems.map(item => (
-                    <tr key={item.id} className="border-t border-slate-100">
-                      <td className="p-0 sticky left-0 bg-white z-10 border-r">
-                        <input className="w-full p-4 font-bold outline-none focus:bg-slate-50 uppercase text-[10px]" value={item.label} onChange={(e) => setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, label: e.target.value} : i))} />
-                      </td>
-                      <td className="p-2 border-r text-center">
-                        <button onClick={() => setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, type: i.type === 'income' ? 'expense' : 'income'} : i))} className={`w-full py-2 rounded-lg text-[9px] font-black uppercase ${item.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{item.type === 'income' ? 'EIN' : 'AUS'}</button>
-                      </td>
-                      {item.values.map((v, idx) => {
-                        const val = getVal(v);
-                        const isDone = getDone(v);
-                        return (
-                          <td key={idx} className={`p-0 border-r relative transition-colors ${isDone ? 'bg-emerald-50' : 'bg-rose-50/30'}`}>
-                            <input type="number" className={`w-full p-4 text-center outline-none bg-transparent font-bold text-[10px] ${isDone ? 'text-emerald-600' : 'text-slate-700'}`} value={val === 0 ? '' : val} onChange={(e) => {
-                              const n = [...item.values];
-                              n[idx] = { amt: parseFloat(e.target.value) || 0, done: isDone };
-                              setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, values: n} : i));
-                            }} />
-                            <button onClick={() => {
-                              const n = [...item.values];
-                              n[idx] = { amt: val, done: !isDone };
-                              setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, values: n} : i));
-                            }} className={`absolute top-1 right-1 transition-colors ${isDone ? 'text-emerald-500' : 'text-slate-200'}`}>
-                              {isDone ? <CheckCircle2 size={12} /> : <Circle size={12} />}
-                            </button>
-                          </td>
-                        );
-                      })}
-                      <td className="p-2 text-center">
-                        <button onClick={() => setRecurringItems(recurringItems.filter(i => i.id !== item.id))} className="text-slate-200 hover:text-rose-500"><Trash2 size={16}/></button>
-                      </td>
-                    </tr>
-                  ))}
+                  {recurringItems.map(item => {
+                    const isLinked = reserves.some(r => r.monthlyLink === item.label);
+                    return (
+                      <tr key={item.id} className={`border-t border-slate-100 ${isLinked ? 'bg-indigo-50/20' : ''}`}>
+                        <td className="p-0 sticky left-0 bg-white z-10 border-r">
+                          <div className="flex items-center px-4">
+                            <input className="w-full py-4 font-bold outline-none focus:bg-slate-50 uppercase text-[10px] bg-transparent" value={item.label} onChange={(e) => setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, label: e.target.value} : i))} />
+                            {isLinked && <Target size={12} className="text-indigo-400 ml-2" title="Gekoppelt an Rücklage"/>}
+                          </div>
+                        </td>
+                        <td className="p-2 border-r text-center">
+                          <button onClick={() => setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, type: i.type === 'income' ? 'expense' : 'income'} : i))} className={`w-full py-2 rounded-lg text-[9px] font-black uppercase ${item.type === 'income' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{item.type === 'income' ? 'EIN' : 'AUS'}</button>
+                        </td>
+                        {item.values.map((v, idx) => {
+                          const val = getVal(v);
+                          const isDone = getDone(v);
+                          return (
+                            <td key={idx} className={`p-0 border-r relative transition-colors ${isDone ? 'bg-emerald-50' : 'bg-rose-50/30'}`}>
+                              <input type="number" className={`w-full p-4 text-center outline-none bg-transparent font-bold text-[10px] ${isDone ? 'text-emerald-600' : 'text-slate-700'}`} value={val === 0 ? '' : val} onChange={(e) => {
+                                const n = [...item.values];
+                                n[idx] = { amt: parseFloat(e.target.value) || 0, done: isDone };
+                                setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, values: n} : i));
+                              }} />
+                              <button onClick={() => {
+                                const n = [...item.values];
+                                n[idx] = { amt: val, done: !isDone };
+                                setRecurringItems(recurringItems.map(i => i.id === item.id ? {...i, values: n} : i));
+                              }} className={`absolute top-1 right-1 transition-colors ${isDone ? 'text-emerald-500' : 'text-slate-200'}`}>
+                                {isDone ? <CheckCircle2 size={12} /> : <Circle size={12} />}
+                              </button>
+                            </td>
+                          );
+                        })}
+                        <td className="p-2 text-center">
+                          <button onClick={() => setRecurringItems(recurringItems.filter(i => i.id !== item.id))} className="text-slate-200 hover:text-rose-500"><Trash2 size={16}/></button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -298,7 +314,7 @@ const App = () => {
                 <input type="text" placeholder="Zweck..." className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-bold" value={newTrans.label} onChange={e => setNewTrans({...newTrans, label: e.target.value})} />
                 <input type="number" placeholder="Betrag €" className="w-full p-3 rounded-xl border bg-slate-50 text-xs font-black" value={newTrans.amount} onChange={e => setNewTrans({...newTrans, amount: e.target.value})} />
                 <div className="p-3 bg-indigo-50 rounded-xl space-y-2">
-                  <label className="text-[8px] font-black text-indigo-400 uppercase block ml-1">Zahlung aus Rücklage?</label>
+                  <label className="text-[8px] font-black text-indigo-400 uppercase block ml-1 tracking-tighter">Zahlung aus Rücklage?</label>
                   <select className="w-full p-2.5 rounded-lg border text-[10px] font-bold outline-none cursor-pointer" value={newTrans.linkedReserveId} onChange={e => setNewTrans({...newTrans, linkedReserveId: e.target.value})}>
                     <option value="">Nein (Laufendes Konto)</option>
                     {reserves.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
