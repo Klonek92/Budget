@@ -216,6 +216,17 @@ const App = () => {
                   <td className="bg-slate-50 border-r text-center opacity-30">---</td>
                   {dashboardData.map((d, i) => <td key={i} className="p-3 text-center border-r">-{formatCurrency(d.fixExp)}</td>)}
                 </tr>
+				<tr className="text-rose-400 border-t italic">
+					<td className="p-3 pl-8 sticky left-0 bg-white z-10 border-r font-bold">Variable Ausgaben</td>
+					<td className="bg-slate-50 border-r text-center opacity-30">---</td>
+					{dashboardData.map((d, i) => {
+					const varExpTotal = transactions
+					.filter(t => new Date(t.date).getMonth() === i && t.type === 'expense')
+					.reduce((sum, t) => sum + (t.amount || 0), 0);
+    
+					return <td key={i} className="p-3 text-center border-r">-{formatCurrency(varExpTotal)}</td>
+					})}
+				</tr>
                 <tr className="text-indigo-400 border-t italic bg-indigo-50/30">
                   <td className="p-3 pl-8 sticky left-0 bg-indigo-50/30 z-10 border-r text-[9px] font-black uppercase tracking-tighter">Sparraten (Umbuchung)</td>
                   <td className="bg-slate-50 border-r text-center opacity-30">---</td>
